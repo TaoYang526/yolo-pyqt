@@ -45,7 +45,7 @@ class IbAPI(interface.API):
         try:
             return task.result()
         except Exception as ex:
-            logging.error("failed to execute ib task: {}".format(str(ex)), None)
+            logging.error("failed to execute ib task: {}".format(str(ex)), exc_info=None)
             return error_result
 
     def stop(self):
@@ -108,7 +108,7 @@ class IbClient:
                 logging.info("successfully checked ib connection with {} open orders".format(len(open_orders)))
                 return
             except Exception as ex:
-                logging.error("failed to check ib connection", ex)
+                logging.error("failed to check ib connection", exc_info=ex)
         logging.info("restart ib connection...")
         self.__start_ib_conn()
 
@@ -129,7 +129,7 @@ class IbClient:
             self.__ib.connect(self.__host, self.__port, self.__client_id)
             logging.info("successfully established ib connection!")
         except Exception as ex:
-            logging.error("failed to connect to IB API server", ex)
+            logging.error("failed to connect to IB API server", exc_info=ex)
 
     def get_market_snapshot(self, codes):
         """

@@ -34,4 +34,4 @@ for _ in range(5):
   time.sleep(1)
 ib_api.stop()
 ```
-Entire interface refers to [interface](https://github.com/TaoYang526/yolo-pyqt/blob/master/api/interface.py).
+Entire interface refers to [interface](https://github.com/TaoYang526/yolo-pyqt/blob/master/pyqt/api/interface.py).

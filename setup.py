@@ -8,7 +8,7 @@ def read(file_name):
 
 setup(
     name="yolo-pyqt",
-    version="0.1.7",
+    version="0.1.8",
     author="Tao Yang",
     author_email="ytaofighting@gmail.com",
     description="yolo-pyqt provides an easy way to build automated quantitative trading systems for individual traders.",
