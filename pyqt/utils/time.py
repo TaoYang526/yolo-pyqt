@@ -1,6 +1,5 @@
 import pytz
 import datetime
-import api
 
 
 def timestamp_to_time(format, timestamp):

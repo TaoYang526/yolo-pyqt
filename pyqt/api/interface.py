@@ -46,7 +46,7 @@ class API(metaclass=ABCMeta):
         """
         pass
 
-    # place order for specified code
+    # place order for specified code, return None if something wrong happened.
     @abstractmethod
     def place_order(self, code, price, number, order_type, trade_side):
         """

@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 def read(file_name):
@@ -8,15 +8,16 @@ def read(file_name):
 
 setup(
     name="yolo-pyqt",
-    version="0.1.0",
+    version="0.1.7",
     author="Tao Yang",
     author_email="ytaofighting@gmail.com",
-    description="yolo-pyqt provides an easy way for quantitative trading.",
+    description="yolo-pyqt provides an easy way to build automated quantitative trading systems for individual traders.",
     license="Apache License 2.0",
     keywords="quantitative-trading qt api",
     url="https://github.com/TaoYang526/yolo-pyqt",
-    packages=['api', 'utils'],
-    long_description=read('README'),
+    packages=find_packages(),
+    long_description=read('README.md'),
+    long_description_content_type='text/markdown',
     classifiers=[
         "Development Status :: 2 - Pre-Alpha",
         "Topic :: Utilities",

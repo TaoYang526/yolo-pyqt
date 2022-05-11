@@ -1,8 +1,7 @@
 import futu
 import logging
-from api import interface
-from api.constants import *
-from utils.time import *
+from pyqt.api import interface, constants
+from pyqt.utils.time import *
 
 
 class FutuAPI(interface.API):
@@ -65,11 +64,11 @@ class FutuAPI(interface.API):
     def get_orders(self, code, trade_side, order_status):
         futu_trade_side = to_futu_trade_side(trade_side)
         status_filter_list = [futu.OrderStatus.FILLED_ALL, futu.OrderStatus.FILLED_PART] \
-            if order_status == OrderStatus.FILLED \
-            else [futu.OrderStatus.SUBMITTED] if order_status == OrderStatus.SUBMITTED \
+            if order_status == constants.OrderStatus.FILLED \
+            else [futu.OrderStatus.SUBMITTED] if order_status == constants.OrderStatus.SUBMITTED \
             else [futu.OrderStatus.FAILED, futu.OrderStatus.DELETED, futu.OrderStatus.DISABLED,
                   futu.OrderStatus.CANCELLED_ALL, futu.OrderStatus.CANCELLED_PART, futu.OrderStatus.CANCELLING_ALL,
-                  futu.OrderStatus.CANCELLING_PART] if order_status == OrderStatus.FAILED \
+                  futu.OrderStatus.CANCELLING_PART] if order_status == constants.OrderStatus.FAILED \
             else None
 
         self.get_trade_context().unlock_trade(self.pwd_unlock)
@@ -83,8 +82,8 @@ class FutuAPI(interface.API):
             order_status = to_order_status(row_data['order_status'])
             trade_side = to_trade_side(row_data['trd_side'])
             results.append((row_data['order_id'], order_status,
-                            self.to_timestamp(code, MS_TIME_FORMAT, row_data['create_time']),
-                            self.to_timestamp(code, MS_TIME_FORMAT, row_data['updated_time']),
+                            self.to_timestamp(code, constants.MS_TIME_FORMAT, row_data['create_time']),
+                            self.to_timestamp(code, constants.MS_TIME_FORMAT, row_data['updated_time']),
                             trade_side, row_data['price'], int(row_data['qty']),
                             row_data['dealt_avg_price'], int(row_data['dealt_qty'])))
         logging.info("got orders with trade_side({}) and order_status({}) for code {}: filtered number={}"
@@ -115,7 +114,7 @@ class FutuAPI(interface.API):
         data = get_first_data_from_response(code, ret, response)
         max_buy = data['max_cash_and_margin_buy']
         max_sell = data['max_position_sell']
-        return {DICT_KEY_MAX_BUY: max_buy, DICT_KEY_MAX_SELL: max_sell}
+        return {constants.DICT_KEY_MAX_BUY: max_buy, constants.DICT_KEY_MAX_SELL: max_sell}
 
     # API doc: https://openapi.futunn.com/futu-api-doc/trade/place-order.html
     # return order_id
@@ -123,13 +122,13 @@ class FutuAPI(interface.API):
         # precision of stock price should not less than 0.01
         price = round(price, 2)
         futu_trade_side = to_futu_trade_side(trade_side)
-        futu_order_type = futu.OrderType.NORMAL if order_type == OrderType.NORMAL else futu.OrderType.MARKET
+        futu_order_type = futu.OrderType.NORMAL if order_type == constants.OrderType.NORMAL else futu.OrderType.MARKET
         ret, response = self.get_trade_context().place_order(price=price, qty=number, code=code,
                                                              order_type=futu_order_type, trd_side=futu_trade_side)
         data = get_first_data_from_response(code, ret, response)
         if data is None:
             msg = "failed to find order id for code {0}".format(code)
-            logging.info(msg)
+            logging.warning(msg)
             raise RuntimeError(msg)
         order_id = data['order_id']
         logging.info('placed order {} for {}: price={}, number={}, order_type={}, trade_side={}'
@@ -160,7 +159,7 @@ class FutuAPI(interface.API):
             last_update_time = row_data['update_time']
             if last_update_time.find('.') != -1:
                 last_update_time = last_update_time[:last_update_time.index('.')]
-            last_update_timestamp = self.to_timestamp(code, TIME_FORMAT, last_update_time)
+            last_update_timestamp = self.to_timestamp(code, constants.TIME_FORMAT, last_update_time)
             result[code] = (row_data['last_price'], last_update_timestamp, last_update_time)
         return result
 
@@ -192,21 +191,21 @@ def get_data_from_response(code, ret, data):
 
 
 def to_order_status(futu_order_status):
-    return OrderStatus.FILLED if futu_order_status == futu.OrderStatus.FILLED_ALL \
-        else OrderStatus.FILLED if futu_order_status == futu.OrderStatus.FILLED_PART \
-        else OrderStatus.SUBMITTED if (futu_order_status == futu.OrderStatus.SUBMITTED
-                                       or futu_order_status == futu.OrderStatus.WAITING_SUBMIT
-                                       or futu_order_status == futu.OrderStatus.SUBMITTING) \
-        else OrderStatus.FAILED
+    return constants.OrderStatus.FILLED if futu_order_status == futu.OrderStatus.FILLED_ALL \
+                                           or futu_order_status == futu.OrderStatus.FILLED_PART \
+        else constants.OrderStatus.SUBMITTED if (futu_order_status == futu.OrderStatus.SUBMITTED
+                                                 or futu_order_status == futu.OrderStatus.WAITING_SUBMIT
+                                                 or futu_order_status == futu.OrderStatus.SUBMITTING) \
+        else constants.OrderStatus.FAILED
 
 
 def to_futu_trade_side(trade_side):
-    return futu.TrdSide.BUY if trade_side == TradeSide.BUY \
-        else futu.TrdSide.SELL if trade_side == TradeSide.SELL \
+    return futu.TrdSide.BUY if trade_side == constants.TradeSide.BUY \
+        else futu.TrdSide.SELL if trade_side == constants.TradeSide.SELL \
         else None
 
 
 def to_trade_side(futu_trade_side):
-    return TradeSide.BUY if futu_trade_side == futu.TrdSide.BUY \
-        else TradeSide.SELL if futu_trade_side == futu.TrdSide.SELL \
+    return constants.TradeSide.BUY if futu_trade_side == futu.TrdSide.BUY \
+        else constants.TradeSide.SELL if futu_trade_side == futu.TrdSide.SELL \
         else None

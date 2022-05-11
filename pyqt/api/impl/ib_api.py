@@ -1,21 +1,20 @@
 import math
-from ib_insync import IB, Stock, LimitOrder, OrderStatus, MarketOrder
-from api.constants import *
-from api import interface
-from utils.time import *
+import ib_insync
+from pyqt.api import interface, constants
+from pyqt.utils.time import *
 import concurrent
 import asyncio
 import logging
+from apscheduler.schedulers import background
 
 
-class IbApi(interface.API):
+class IbAPI(interface.API):
 
-    def __init__(self, host, port, client_id, check_interval_s=60,
-                 refresh_interval_s=1, scheduler=None):
-        self.__ib_client = IbClient(host, port, client_id)
-
-        self.__scheduler = scheduler
-        self.__check_interval_s = check_interval_s
+    def __init__(self, host, port, client_id, exchange='SMART', currency='USD',
+                 check_connection_interval_s=60, refresh_interval_s=1):
+        self.__ib_client = IbClient(host, port, client_id, exchange, currency)
+        self.__scheduler = background.BackgroundScheduler()
+        self.__check_connection_interval_s = check_connection_interval_s
         self.__refresh_interval_s = refresh_interval_s
         # 0 - running flag, 1 - IB connection
         self.__check_job_id = "keep_ib_conn"
@@ -24,15 +23,16 @@ class IbApi(interface.API):
         self.__executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     def start(self):
+        # start scheduler
+        self.__scheduler.start()
         # start ib connection
         self.check_ib_client_connected()
         # periodically check to keep connection
-        if self.__scheduler is not None:
-            self.__scheduler.add_periodical_job(self.__check_job_id, self.check_ib_client_connected,
-                                                self.__check_interval_s)
-            self.__scheduler.add_periodical_job(self.__refresh_job_id, self.refresh_tickers,
-                                                self.__refresh_interval_s)
-            logging.info("add periodical jobs: {}".format([self.__check_job_id, self.__refresh_job_id]))
+        self.__scheduler.add_job(self.check_ib_client_connected, trigger='interval',
+                                 seconds=self.__check_connection_interval_s, id=self.__check_job_id)
+        self.__scheduler.add_job(self.refresh_tickers, trigger='interval',
+                                 seconds=self.__refresh_interval_s, id=self.__refresh_job_id)
+        logging.info("add periodical jobs: {}".format([self.__check_job_id, self.__refresh_job_id]))
 
     def check_ib_client_connected(self):
         return self.execute_ib_task(self.__ib_client.check_connected, None, error_result=None)
@@ -45,7 +45,7 @@ class IbApi(interface.API):
         try:
             return task.result()
         except Exception as ex:
-            logging.error("failed to execute ib task {}".format(fn), ex)
+            logging.error("failed to execute ib task: {}".format(str(ex)), None)
             return error_result
 
     def stop(self):
@@ -56,7 +56,7 @@ class IbApi(interface.API):
 
     def get_pre_trade_info(self, code, price):
         return self.execute_ib_task(self.__ib_client.get_pre_trade_info, [code, price],
-                                    error_result={DICT_KEY_MAX_BUY: 0, DICT_KEY_MAX_SELL: 0})
+                                    error_result={constants.DICT_KEY_MAX_BUY: 0, constants.DICT_KEY_MAX_SELL: 0})
 
     def get_orders(self, code, trade_side, order_status):
         return self.execute_ib_task(self.__ib_client.get_orders, [code, trade_side, order_status],
@@ -80,10 +80,12 @@ class IbApi(interface.API):
 # all functions should be executed in the same thread!!!
 class IbClient:
 
-    def __init__(self, host, port, client_id):
+    def __init__(self, host, port, client_id, exchange, currency):
         self.__host = host
         self.__port = port
         self.__client_id = client_id
+        self.__exchange = exchange
+        self.__currency = currency
         self.__ib = None
         # key fields for API to communicate with IB connection
         self.__subscribed_codes = set()
@@ -96,10 +98,10 @@ class IbClient:
         # required in non-main thread
         try:
             asyncio.get_event_loop()
-        except Exception as ex:
+        except RuntimeError:
             event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(event_loop)
-            print("set event loop: {}".format(event_loop))
+            logging.info("set event loop: {}".format(event_loop))
         if self.__ib is not None:
             try:
                 open_orders = self.__ib.reqAllOpenOrders()
@@ -122,7 +124,7 @@ class IbClient:
         self.__subscribed_codes = set()
         self.__tickers = dict()
         # established ib connection
-        self.__ib = IB()
+        self.__ib = ib_insync.IB()
         try:
             self.__ib.connect(self.__host, self.__port, self.__client_id)
             logging.info("successfully established ib connection!")
@@ -143,7 +145,7 @@ class IbClient:
             ticker = self.__tickers.get(normalized_code)
             if ticker is None:
                 if normalized_code not in self.__subscribed_codes:
-                    stock = Stock(normalized_code, 'SMART', 'USD')
+                    stock = ib_insync.Stock(normalized_code, self.__exchange, self.__currency)
                     ticker = self.__ib.reqMktData(stock, snapshot=False)
                     logging.info("subscribed new code {} as {}".format(code, normalized_code))
                     self.__tickers[normalized_code] = ticker
@@ -159,7 +161,7 @@ class IbClient:
     # return pre-trade info (dict with keys: DICT_KEY_MAX_BUY, DICT_KEY_MAX_SELL)
     def get_pre_trade_info(self, code, price):
         if self.__ib is None:
-            return {DICT_KEY_MAX_BUY: 0, DICT_KEY_MAX_SELL: 0}
+            return {constants.DICT_KEY_MAX_BUY: 0, constants.DICT_KEY_MAX_SELL: 0}
         # get max_sell from position
         normalized_code = normalize_code(code)
         positions = self.__ib.positions()
@@ -175,7 +177,7 @@ class IbClient:
         for acc_value in account_values:
             if acc_value.tag == 'TotalCashValue':
                 cash_value = float(acc_value.value)
-        return {DICT_KEY_MAX_BUY: cash_value/price, DICT_KEY_MAX_SELL: max_sell}
+        return {constants.DICT_KEY_MAX_BUY: cash_value/price, constants.DICT_KEY_MAX_SELL: max_sell}
 
     # trade_type: BUY / SELL
     # order_status: SUBMITTED / FILLED / FAILED
@@ -189,12 +191,13 @@ class IbClient:
         if self.__ib is None:
             return list()
         expected_query_fn = self.__ib.trades
-        if order_status == OrderStatus.SUBMITTED:
-            expected_status_set = OrderStatus.ActiveStates
-        elif order_status == OrderStatus.FILLED:
-            expected_status_set = {OrderStatus.Filled}
-        elif order_status == OrderStatus.FAILED:
-            expected_status_set = {OrderStatus.Inactive, OrderStatus.Cancelled, OrderStatus.ApiCancelled}
+        if order_status == constants.OrderStatus.SUBMITTED:
+            expected_status_set = ib_insync.OrderStatus.ActiveStates
+        elif order_status == constants.OrderStatus.FILLED:
+            expected_status_set = {ib_insync.OrderStatus.Filled}
+        elif order_status == constants.OrderStatus.FAILED:
+            expected_status_set = {ib_insync.OrderStatus.Inactive, ib_insync.OrderStatus.Cancelled,
+                                   ib_insync.OrderStatus.ApiCancelled}
         trades = expected_query_fn()
         results = list()
         normalized_code = normalize_code(code)
@@ -230,15 +233,19 @@ class IbClient:
         """
         if self.__ib is None:
             return None
-        ib_trade_side = 'BUY' if trade_side == TradeSide.BUY else 'SELL'
-        if order_type == OrderType.NORMAL:
+        ib_trade_side = 'BUY' if trade_side == constants.TradeSide.BUY \
+            else 'SELL' if trade_side == constants.TradeSide.SELL \
+            else None
+        if ib_trade_side is None:
+            return None
+        if order_type == constants.OrderType.NORMAL:
             price = round(price, 2)
-            order = LimitOrder(ib_trade_side, number, price)
+            order = ib_insync.LimitOrder(ib_trade_side, number, price)
             # allow trade in pre-market or post-market time
             order.outsideRth = True
         else:
-            order = MarketOrder(ib_trade_side, number)
-        contract = Stock(normalize_code(code), 'SMART', 'USD')
+            order = ib_insync.MarketOrder(ib_trade_side, number)
+        contract = ib_insync.Stock(normalize_code(code), self.__exchange, self.__currency)
         trade = self.__ib.placeOrder(contract, order)
         return trade.order.orderId
 
@@ -268,7 +275,7 @@ def convert_trade_to_api_order(trade):
     if trade.log:
         create_timestamp = trade.log[0].time.timestamp()
         update_timestamp = trade.log[len(trade.log)-1].time.timestamp()
-    trade_side = TradeSide.BUY if trade.order.action == 'BUY' else TradeSide.SELL
+    trade_side = constants.TradeSide.BUY if trade.order.action == 'BUY' else constants.TradeSide.SELL
     submit_price = trade.order.lmtPrice if trade.order.orderType == 'LMT' else None
     submit_num = trade.order.totalQuantity
     filled_avg_price = trade.orderStatus.avgFillPrice
@@ -278,12 +285,12 @@ def convert_trade_to_api_order(trade):
 
 
 def to_order_status(ib_order_status):
-    if ib_order_status in OrderStatus.ActiveStates:
-        return OrderStatus.SUBMITTED
-    elif ib_order_status == OrderStatus.Filled:
-        return OrderStatus.FILLED
+    if ib_order_status in ib_insync.OrderStatus.ActiveStates:
+        return constants.OrderStatus.SUBMITTED
+    elif ib_order_status == ib_insync.OrderStatus.Filled:
+        return constants.OrderStatus.FILLED
     else:
-        return OrderStatus.FAILED
+        return constants.OrderStatus.FAILED
 
 
 def get_stock_data(ticker):
@@ -291,23 +298,8 @@ def get_stock_data(ticker):
     if math.isnan(last_price):
         return None
     last_update_timestamp = ticker.time.timestamp()
-    last_update_time = timestamp_to_time(TIME_FORMAT, last_update_timestamp)
+    last_update_time = timestamp_to_time(constants.TIME_FORMAT, last_update_timestamp)
     return last_price, last_update_timestamp, last_update_time
-
-
-def start_ib_connection(host, port, client_id, interval_s, subscribed_codes, tickers, running_flag, logger):
-    logger.info("starting IB connection thread")
-    # established ib connection
-    ib = IB()
-    try:
-        ib.connect(host, port, client_id)
-    except Exception as ex:
-        logger.warn("failed to connect to IB API server: {}".format(ex))
-        return
-    # start running
-    running_flag[1] = ib
-    running_flag[0] = True
-    logger.info("IB connection thread stopped")
 
 
 def normalize_code(code):
